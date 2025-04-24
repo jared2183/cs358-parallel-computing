@@ -54,21 +54,33 @@ double** MatrixMultiply(double** const a, double** const b, int n, int t)
   //
   // Initialize target matrix in prep for summing:
   //
-  for (int i = 0; i < n; i++)
-    for (int j = 0; j < n; j++)
+  for (int i = 0; i < t; i++)
+    for (int j = 0; j < t; j++)
       c[i][j] = 0.0;
 
   //
   // For starters, just execute using the main thread, nothing
   // in parallel:
   //
-  struct ThreadInfo* info;
-  info = new ThreadInfo(0 /*id*/, 
-                        1 /*num threads*/, 
-                        n /*matrix size*/,
-                        a, b, c);
 
-  mm(info);
+  pthread_t* threads = new pthread_t[t];  // array of thread IDs
+
+  for (int i = 0; i < t; i++) {
+    struct ThreadInfo* info;
+    info = new ThreadInfo(i /*id*/, 
+                          t /*num threads*/, 
+                          n /*matrix size*/,
+                          a, b, c);
+    pthread_create(&threads[i], NULL, mm, (void*) info);
+  }
+
+  for (int i = 0; i < t; i++) {
+    pthread_join(threads[i], NULL);
+  }
+
+  delete[] threads;
+
+  // mm(info);
 
   //
   // NOTE: mm() will delete the info object as part of the cleanup.
