@@ -90,10 +90,8 @@ int main(int argc, char* argv[])
 
 		// image = ContrastStretch(image, rows, cols, steps);
 		uchar** result_image;
-		uchar** next_image = image;
-		int iterations = 0;
 
-		result_image = main_process(next_image, rows, cols, steps, numProcs);
+		result_image = main_process(image, rows, cols, steps, numProcs);
 
 		auto stop = chrono::high_resolution_clock::now();
 		auto diff = stop - start;
