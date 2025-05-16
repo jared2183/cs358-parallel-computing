@@ -322,7 +322,7 @@ uchar** main_process(uchar** image, int rows, int cols, int steps, int numProcs)
 	// int endRow = min(split_size + 1, rows); // include boundary rows if not only worker
 
 	uchar** result_image = New2dMatrix<uchar>(rows, cols * 3);
-	uchar** image_chunk = ContrastStretch(&image[0], rows_per_process, cols, 1);
+	uchar** image_chunk = ContrastStretch(&image[0], rows_per_process, cols, steps);
 
 	// copy the chunk of results to the result image
 	for (int i = 0; i < rows_per_process; i++) {
@@ -379,7 +379,7 @@ void worker_process(int myRank, int numProcs) {
 	MPI_Recv(image_chunk[0], count, MPI_UNSIGNED_CHAR, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
 	// perform contrast stretching on the image chunk
-	uchar** stretched_image = ContrastStretch(&image_chunk[0], chunk_rows, cols, 1);
+	uchar** stretched_image = ContrastStretch(&image_chunk[0], chunk_rows, cols, steps);
 
 	// send the result image chunk back to main
 	int dest = 0;
