@@ -21,7 +21,7 @@ void main_process(int numProcs)
 
 	MPI_Send(&value, count, MPI_INT, dest, tag, MPI_COMM_WORLD);
 
-	int src = numProcs - 1;  // wait for msg from last worker, can also set to receive from any machine
+	int src = numProcs - 1;  // wait for msg from last worker, can also set to receive from any machine (MPI_ANY_SOURCE)
 	MPI_Recv(&value, count, MPI_INT, src, tag, MPI_COMM_WORLD, &status);
 
 	cout << "Main received " << value << endl;
