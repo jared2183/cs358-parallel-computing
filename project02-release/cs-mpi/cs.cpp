@@ -276,12 +276,9 @@ uchar **ContrastStretch(uchar **image, int rows, int cols, int steps)
 
 uchar** main_process(uchar** image, int rows, int cols, int steps, int numProcs) {
 	cout << "main starting..." << endl;
-	cout << "number of rows: " << rows << endl;
   
-	// int myRank = 0;
 	// approximate number of rows if evenly split among workers (not including boundary rows)
 	int rows_per_process = rows / numProcs;
-	cout << "rows_per_process: " << rows_per_process << endl;
 	
 	// Send contrast sketch parameters to workers:
 	for (int w = 1; w < numProcs; w++) {
@@ -308,22 +305,24 @@ uchar** main_process(uchar** image, int rows, int cols, int steps, int numProcs)
 
 		// first we send the number of rows and columns of the sent image chunk and also the number of steps
 		MPI_Send(&steps, count, MPI_INT, dest, tag, MPI_COMM_WORLD);
+		// cout << "main sent steps to worker " << w << endl;
 		MPI_Send(&chunk_rows, count, MPI_INT, dest, tag, MPI_COMM_WORLD);
+		// cout << "main sent chunk rows to worker " << w << endl;
 		MPI_Send(&cols, count, MPI_INT, dest, tag, MPI_COMM_WORLD);		// cols is same as main image since we split by rows only
+		// cout << "main sent cols to worker " << w << endl;
 	
 		// now we send the image
 		count = chunk_rows * (cols * 3);
 		MPI_Send(image[startRow], count, MPI_UNSIGNED_CHAR, dest, tag, MPI_COMM_WORLD);
+		// cout << "main sent image chunk to worker " << w << endl;
 	}
   
 	uchar** result_image = New2dMatrix<uchar>(rows, cols * 3);
 
 	// instead of doing nothing, the main process also performs it's own share of contrast sketching	
 	int chunk_rows = min(rows_per_process + 1, rows);	// main process has 1 boundary row, makes sure we don't go out of bounds
-	uchar** image_chunk = ContrastStretch(image, chunk_rows, cols, steps);	// will overwrite the image
+	uchar** image_chunk = ContrastStretch(image, chunk_rows, cols, 1);	// will overwrite the image
 
-	cout << "main startRow: " << 0 << endl;
-	cout << "main endRow: " << rows_per_process << endl;
 	// copy the chunk of results to the result image
 	for (int i = 0; i < rows_per_process; i++) {
 		for (int j = 0; j < cols * 3; j++) {
@@ -349,11 +348,9 @@ uchar** main_process(uchar** image, int rows, int cols, int steps, int numProcs)
 		int count = rows_per_process * (cols * 3);
 		int tag = 0;
 
-		cout << "startRow for worker " << w << ": " << startRow << endl;
-		cout << "endRow for worker " << w << ": " << endRow << endl;
-
 		MPI_Recv(result_image[startRow], count, MPI_UNSIGNED_CHAR, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 	}
+	// cout << "main process received results from workers" << endl;
 
 	// return pointer to result image
 	return result_image;
@@ -363,36 +360,45 @@ void worker_process(int myRank, int numProcs) {
 	cout << "worker " << myRank << " starting..." << endl;
 	cout.flush();
 
-	// receives size of image chunk from main
-	int src = 0;   // receive from main
+	int src = 0;   // main process rank
 	int count = 1;  
 	int tag = 0;
-	int steps, chunk_rows, cols;
-  
-	MPI_Recv(&steps, count, MPI_INT, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-	MPI_Recv(&chunk_rows, count, MPI_INT, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-	MPI_Recv(&cols, count, MPI_INT, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+	int steps, chunk_rows, cols;	// parameters to be received from main
+	int i = 0;
+	
+	while (i < steps) {
+		MPI_Recv(&steps, count, MPI_INT, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		// cout << "worker " << myRank << " received steps from main" << endl;
+		MPI_Recv(&chunk_rows, count, MPI_INT, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		// cout << "worker " << myRank << " received chunk rows from main" << endl;
+		MPI_Recv(&cols, count, MPI_INT, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		// cout << "worker " << myRank << " received cols from main" << endl;
 
-	// receive the image chunk from main with boundary rows
-	uchar** image_chunk = New2dMatrix<uchar>(chunk_rows, cols * 3);
-	count = chunk_rows * (cols * 3);	// number of rows in chunk sent from main
-	MPI_Recv(image_chunk[0], count, MPI_UNSIGNED_CHAR, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-	// perform contrast stretching on the image chunk
-	uchar** stretched_image = ContrastStretch(image_chunk, chunk_rows, cols, steps);
-
-	// send the result image chunk back to main
-	int dest = 0;
-
-	// calculates size of chunk sent back to main
-	if (myRank == numProcs - 1) {
-		chunk_rows = chunk_rows - 1; // last worker only has one boundary row
-		// cout << "last worker sent chunk rows: " << chunk_rows << endl;
+		// receive the image chunk from main with boundary rows
+		uchar** image_chunk = New2dMatrix<uchar>(chunk_rows, cols * 3);
+		count = chunk_rows * (cols * 3);	// number of rows in chunk sent from main
+		MPI_Recv(image_chunk[0], count, MPI_UNSIGNED_CHAR, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		// cout << "worker " << myRank << " received image chunk from main" << endl;
+	
+		// perform contrast stretching on the image chunk
+		uchar** stretched_image = ContrastStretch(image_chunk, chunk_rows, cols, 1);
+	
+		// send the result image chunk back to main
+		int dest = 0;
+	
+		// calculates size of chunk sent back to main
+		if (myRank == numProcs - 1) {
+			chunk_rows = chunk_rows - 1; // last worker only has one boundary row
+			// cout << "last worker sent chunk rows: " << chunk_rows << endl;
+		}
+		else {
+			chunk_rows = chunk_rows - 2; // all other workers have two boundary rows that we don't want to send back
+		}
+		count = chunk_rows * (cols * 3);
+		
+		// skips first row since it is always a boundary row in the worker process (main process handles case where theres no boundary row at start)
+		MPI_Send(stretched_image[1], count, MPI_UNSIGNED_CHAR, dest, tag, MPI_COMM_WORLD);
+		// cout << "worker " << myRank << " sent results to main for step " << i << endl;
+		i++;
 	}
-	else {
-		chunk_rows = chunk_rows - 2; // all other workers have two boundary rows that we don't want to send back
-	}
-	count = chunk_rows * (cols * 3);
-	// skips first row since it is always a boundary row in the worker process (main process handles case where theres no boundary row at start)
-	MPI_Send(stretched_image[1], count, MPI_UNSIGNED_CHAR, dest, tag, MPI_COMM_WORLD);
 }

@@ -89,7 +89,13 @@ int main(int argc, char* argv[])
 		auto start = chrono::high_resolution_clock::now();
 
 		// image = ContrastStretch(image, rows, cols, steps);
-		image = main_process(image, rows, cols, steps, numProcs);
+		int i = 0;
+		while (i < steps)
+		{
+			cout << "** Step " << i << "..." << endl;
+			image = main_process(image, rows, cols, steps, numProcs);
+			i++;
+		}
 
 		auto stop = chrono::high_resolution_clock::now();
 		auto diff = stop - start;
@@ -100,14 +106,13 @@ int main(int argc, char* argv[])
 		cout << "** Done!  Time: " << duration.count() / 1000.0 << " secs" << endl;
 
 		// debug_compare_image("sunset.bmp", steps, false, image, 0, rows-1, 0, cols-1);
-		debug_compare_image("sunset.bmp", steps, true, image, 0, rows - 1, 1, 1);
+		// debug_compare_image("sunset.bmp", steps, true, image, 0, rows - 1, 1, 1);
 
 		cout << "** Writing bitmap..." << endl;
 		WriteBitmapFile(outfile, bitmapFileHeader, bitmapInfoHeader, image);
 
 		cout << "** Execution complete." << endl;
 		cout << endl;
-
 	}
 
 	MPI_Finalize();
