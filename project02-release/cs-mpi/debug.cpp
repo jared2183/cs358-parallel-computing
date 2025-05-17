@@ -370,7 +370,8 @@ bool debug_compare_image(
 	//
 	// done!
 	//
-	cout << "# of pixel differences: " << diffs << endl;
+	cout << "# of pixel differences: " << diffs << " / " << rows*cols*3 << " pixels" << endl;
+	cout << "percent accuracy: " << (1.0 - (double) diffs / (rows*cols*3)) * 100.0 << "%" << endl;
 
 	if (diffs > 0)
 		cout << "summary: image is different/incorrect" << endl;

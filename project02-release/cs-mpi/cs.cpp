@@ -234,7 +234,7 @@ uchar **ContrastStretch(uchar **image, int rows, int cols, int steps)
 
 	while (step <= steps)
 	{
-		cout << "** Step " << step << "..." << endl;
+		// cout << "** Step " << step << "..." << endl;
 
 		//
 		// Okay, for each row (except boundary rows), lighten/darken pixel:
@@ -316,14 +316,14 @@ uchar** main_process(uchar** image, int rows, int cols, int steps, int numProcs)
 		MPI_Send(image[startRow], count, MPI_UNSIGNED_CHAR, dest, tag, MPI_COMM_WORLD);
 	}
   
-	// instead of doing nothing, the main process also 
-	// performs it's own share of contrast sketching
-	// int startRow = 0;
-	// int endRow = min(split_size + 1, rows); // include boundary rows if not only worker
-
 	uchar** result_image = New2dMatrix<uchar>(rows, cols * 3);
-	uchar** image_chunk = ContrastStretch(&image[0], rows_per_process, cols, steps);
 
+	// instead of doing nothing, the main process also performs it's own share of contrast sketching	
+	int chunk_rows = min(rows_per_process + 1, rows);	// main process has 1 boundary row, makes sure we don't go out of bounds
+	uchar** image_chunk = ContrastStretch(image, chunk_rows, cols, steps);	// will overwrite the image
+
+	cout << "main startRow: " << 0 << endl;
+	cout << "main endRow: " << rows_per_process << endl;
 	// copy the chunk of results to the result image
 	for (int i = 0; i < rows_per_process; i++) {
 		for (int j = 0; j < cols * 3; j++) {
@@ -349,8 +349,8 @@ uchar** main_process(uchar** image, int rows, int cols, int steps, int numProcs)
 		int count = rows_per_process * (cols * 3);
 		int tag = 0;
 
-		cout << "startRow: " << startRow << endl;
-		cout << "endRow: " << endRow << endl;
+		cout << "startRow for worker " << w << ": " << startRow << endl;
+		cout << "endRow for worker " << w << ": " << endRow << endl;
 
 		MPI_Recv(result_image[startRow], count, MPI_UNSIGNED_CHAR, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 	}
@@ -379,7 +379,7 @@ void worker_process(int myRank, int numProcs) {
 	MPI_Recv(image_chunk[0], count, MPI_UNSIGNED_CHAR, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
 	// perform contrast stretching on the image chunk
-	uchar** stretched_image = ContrastStretch(&image_chunk[0], chunk_rows, cols, steps);
+	uchar** stretched_image = ContrastStretch(image_chunk, chunk_rows, cols, steps);
 
 	// send the result image chunk back to main
 	int dest = 0;
