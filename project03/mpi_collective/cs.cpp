@@ -145,8 +145,10 @@ void copy_boundary(uchar** image2, uchar** image, int rows, int cols)
 //
 // stretch_one_pixel:
 //
-void stretch_one_pixel(uchar** image2, uchar** image, int baserow, int basecol)
+int stretch_one_pixel(uchar** image2, uchar** image, int baserow, int basecol)
 {
+	int changes = 0;	// number of changes made to pixel value, used for convergence check
+
 	int prevrow = baserow - 1;  // row above
 	int nextrow = baserow + 1;  // row below
 
@@ -169,6 +171,10 @@ void stretch_one_pixel(uchar** image2, uchar** image, int baserow, int basecol)
 		image[nextrow][basecol],
 		image[nextrow][nextcol],
 		1 /*stepby*/);
+	
+	// Check if the pixel value changed:
+	if (image2[baserow][basecol] != image[baserow][basecol])
+		changes++;
 
 	// Green:
 	basecol++;
@@ -186,6 +192,10 @@ void stretch_one_pixel(uchar** image2, uchar** image, int baserow, int basecol)
 		image[nextrow][nextcol],
 		1 /*stepby*/);
 
+	// Check if the pixel value changed:
+	if (image2[baserow][basecol] != image[baserow][basecol])
+		changes++;
+
 	// Red:
 	basecol++;
 	prevcol++;
@@ -201,6 +211,12 @@ void stretch_one_pixel(uchar** image2, uchar** image, int baserow, int basecol)
 		image[nextrow][basecol],
 		image[nextrow][nextcol],
 		1 /*stepby*/);
+	
+	// Check if the pixel value changed:
+	if (image2[baserow][basecol] != image[baserow][basecol])
+		changes++;
+
+	return changes;  // return number of changes made to pixel value (0, 1, 2, or 3)
 }
 
 
@@ -221,6 +237,7 @@ uchar **ContrastStretch(uchar **image, int rows, int cols, int steps)
 	int tag = 0;
 	int myRank;
 	int numProcs;
+	int src, dest;
 	MPI_Status status;
 
 	uchar** original_image = image;
@@ -250,9 +267,12 @@ uchar **ContrastStretch(uchar **image, int rows, int cols, int steps)
 	// Okay, now perform contrast stretching, one step at a time:
 	//
 	int step = 1;
+	bool converged = false;
 
-	while (step <= steps)
+	while (step <= steps && !converged)
 	{
+		int local_diffs = 0;  // number of changes made to pixel values in this step
+
 		if (myRank == 0)
 		  cout << "** Step " << step << "..." << endl;
 
@@ -267,43 +287,57 @@ uchar **ContrastStretch(uchar **image, int rows, int cols, int steps)
 		// that row from the process above them and store into first (top) ghost row:
 		//
 
-		// if main process, only send last row to next worker, no receive since main process has no previous worker
-		if (myRank == 0) {
-			MPI_Send(image[rows], cols * 3, MPI_UNSIGNED_CHAR, 
-				myRank + 1, tag, MPI_COMM_WORLD);
-		}
-		// if last worker, only receive last row from previous worker as first row, no send
-		else if (myRank == numProcs - 1) {
-			MPI_Recv(image[0], cols * 3, MPI_UNSIGNED_CHAR, 
-				myRank - 1, tag, MPI_COMM_WORLD, &status);
-		}
-		else  // all other processes: send last row down to next worker and receive first row from previous
-		{
-			MPI_Sendrecv(image[rows], cols * 3, MPI_UNSIGNED_CHAR, 
-				myRank + 1, tag, image[0], cols * 3, MPI_UNSIGNED_CHAR, 
-				myRank - 1, tag, MPI_COMM_WORLD, &status);
-		}
 
+
+		// if main process, only send last row to next worker, no receive since main process has no previous worker
+		// if (myRank == 0) {
+		// 	MPI_Send(image[rows], cols * 3, MPI_UNSIGNED_CHAR, 
+		// 		myRank + 1, tag, MPI_COMM_WORLD);
+		// }
+		// // if last worker, only receive last row from previous worker as first row, no send
+		// else if (myRank == numProcs - 1) {
+		// 	MPI_Recv(image[0], cols * 3, MPI_UNSIGNED_CHAR, 
+		// 		myRank - 1, tag, MPI_COMM_WORLD, &status);
+		// }
+		// else  // all other processes: send last row down to next worker and receive first row from previous
+		// {
+		// 	MPI_Sendrecv(image[rows], cols * 3, MPI_UNSIGNED_CHAR, 
+		// 		myRank + 1, tag, image[0], cols * 3, MPI_UNSIGNED_CHAR, 
+		// 		myRank - 1, tag, MPI_COMM_WORLD, &status);
+		// 	}
+		dest = (myRank == numProcs - 1) ? MPI_PROC_NULL : myRank + 1;  // next worker if exists
+		src = (myRank == 0) ? MPI_PROC_NULL : myRank - 1;  // previous worker if exists
+
+		MPI_Sendrecv(image[rows], cols * 3, MPI_UNSIGNED_CHAR, 
+			dest, tag, image[0], cols * 3, MPI_UNSIGNED_CHAR, 
+			src, tag, MPI_COMM_WORLD, &status);
+			
 		// // 
 		// // 2 of 2: everyone send their first data row *UP* to the previous proc, and receive
 		// // that row from the process below them and store into their last (bottom) ghost row:
 		// //
 		// main process has no previous worker, so only receive last row from next worker
-		if (myRank == 0) {
-			MPI_Recv(image[rows + 1], cols * 3, MPI_UNSIGNED_CHAR, 
-				myRank + 1, tag, MPI_COMM_WORLD, &status);
-		}
-		// last worker has no next worker, so only send first row to previous worker
-		else if (myRank == numProcs - 1) {
-			MPI_Send(image[1], cols * 3, MPI_UNSIGNED_CHAR, 
-				myRank - 1, tag, MPI_COMM_WORLD);
-		}
-		// all other processes: send first row up to previous worker and receive last row from next
-		else {  
-			MPI_Sendrecv(image[1], cols * 3, MPI_UNSIGNED_CHAR, 
-				myRank - 1, tag, image[rows + 1], cols * 3, MPI_UNSIGNED_CHAR, 
-				myRank + 1, tag, MPI_COMM_WORLD, &status);
-		}
+		// if (myRank == 0) {
+		// 	MPI_Recv(image[rows + 1], cols * 3, MPI_UNSIGNED_CHAR, 
+		// 		myRank + 1, tag, MPI_COMM_WORLD, &status);
+		// }
+		// // last worker has no next worker, so only send first row to previous worker
+		// else if (myRank == numProcs - 1) {
+		// 	MPI_Send(image[1], cols * 3, MPI_UNSIGNED_CHAR, 
+		// 		myRank - 1, tag, MPI_COMM_WORLD);
+		// }
+		// // all other processes: send first row up to previous worker and receive last row from next
+		// else {  
+		// 	MPI_Sendrecv(image[1], cols * 3, MPI_UNSIGNED_CHAR, 
+		// 		myRank - 1, tag, image[rows + 1], cols * 3, MPI_UNSIGNED_CHAR, 
+		// 		myRank + 1, tag, MPI_COMM_WORLD, &status);
+		// }
+		dest = (myRank == 0) ? MPI_PROC_NULL : myRank - 1;  // previous worker if exists
+		src = (myRank == numProcs - 1) ? MPI_PROC_NULL : myRank + 1;  // next worker if exists
+
+		MPI_Sendrecv(image[1], cols * 3, MPI_UNSIGNED_CHAR, 
+			dest, tag, image[rows + 1], cols * 3, MPI_UNSIGNED_CHAR, 
+			src, tag, MPI_COMM_WORLD, &status);
 
 		// if (myRank > 0)  // all send except the first process:
 		// 	MPI_Send(image[1], cols*3, MPI_UNSIGNED_CHAR, myRank-1, tag, MPI_COMM_WORLD);
@@ -326,7 +360,7 @@ uchar **ContrastStretch(uchar **image, int rows, int cols, int steps)
 
 			for (int col = 1; col < cols - 1; col++, basecol += 3)
 			{
-				stretch_one_pixel(image2, image, row, basecol);
+				local_diffs += stretch_one_pixel(image2, image, row, basecol);
 			}
 		}
 
@@ -345,6 +379,16 @@ uchar **ContrastStretch(uchar **image, int rows, int cols, int steps)
 
 		step++;
 
+		// convergence check: if no changes made, we exit loop
+		int global_diffs;	// only accessible by main process
+		MPI_Reduce(&local_diffs, &global_diffs, 1, MPI_INT, MPI_SUM, 0 /*main*/, MPI_COMM_WORLD);
+		MPI_Bcast(&global_diffs, 1, MPI_INT, 0 /*main*/, MPI_COMM_WORLD);
+
+		if (myRank == 0) {
+			cout << "   Diff " << global_diffs << endl;
+		}
+
+		converged = (global_diffs == 0);
 	}//while-each-step
 
 	//

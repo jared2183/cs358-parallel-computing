@@ -1,1 +1,1 @@
-cs358-parallel-computing
+cs358-base-image
